@@ -34,17 +34,20 @@ pub const Sniffer = struct {
         filename:?[]const u8,
         dataset:?[]table.Filetype
     ) Sniffer {
-        //get the file extension (maybe null)
+        //get the file extension (maybe null, block (labled 'b') returns value)
         const ext = if (filename) |name| b: {
+            //get the index of last occurance of a '.' in the filename (the extension)
             const idx = std.mem.lastIndexOf(u8, name, ".");
-            const n = if (idx) |i| name[i + 1..] else null;
-            if (n) |_|
-                print.debug("detected file extension: {s}", .{n.?})
+
+            //determine the extension
+            const ext = if (idx) |i| name[i + 1..] else null;
+            if (ext) |e|
+                print.debug("detected file extension: {s}", .{e})
             else
                 print.debug("no file extension detected for {s}", .{name});
 
-            break :b n;
-        } else null;
+            break :b ext;
+        } else null; //default to null (no extension)
 
         //print it  TODO: remove this
         print.debug("{s}", .{ext orelse "[no ext found]"});
@@ -159,8 +162,11 @@ pub const Sniffer = struct {
 
         //header
         for (check.header, 0..) |b, i| {
+            //get needed values for check 
             const byte_idx = check.offset + i;
             const byte = self.input[byte_idx];
+
+            //do said check
             if (byte != b) {
                 print.debug("header did not match: {s}", .{
                     if (check.ext) |ext| ext else "[no file extension]"
@@ -171,10 +177,12 @@ pub const Sniffer = struct {
 
         //trailer
         for (end_bytes, 0..) |b, i| {
+            //get needed values for check 
             const needed_end = i + end_bytes.len;
             const byte_idx = self.input.len - needed_end;
             const byte = self.input[byte_idx];
-            //self.input[self.input.len - (i + end_bytes.len)]
+
+            //do said check
             if (byte != b) {
                 print.debug("head did match, but not trailer: {s}", .{
                     if (check.ext) |ext| ext else "[no file extension]"
