@@ -10,65 +10,16 @@ const the_list = table.the_list;
 const stdout = &@constCast(&std.fs.File.stdout().writer(&.{})).interface;
 const stderr = &@constCast(&std.fs.File.stderr().writer(&.{})).interface;
 
-const Config = struct {
-    dataset_file:?[]const u8 = null,
-    dataset:?[]table.Filetype = null,
-    files:std.ArrayList([:0]const u8),
-};
-
-const valid_args = enum {
-    dataset,
-    use_default_dataset,
-    invalid,
-};
-
 pub fn main() !void {
     //the main allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
     var alloc = gpa.allocator();
 
-    var config = Config {
-        //holds the filenames for each file to check (set by args)
-        .files = try std.ArrayList([:0]const u8).initCapacity(alloc, 0),
-    };
+    var config = try hlp.Args.parse(alloc);
     defer {
         config.files.deinit(alloc);
     }
-    
-    var args = std.process.args();
-    _ = args.skip(); //skip the path to the binary
-
-    var parse_args: bool = true;
-    loop: while (args.next()) |a| {
-        if (a.len < 1) continue :loop;
-        //gated if statement (I call it that, not sure what I'm supposed to refer to it as) 
-        if (a[0] == '-' and a.len > 1 and parse_args) if (a[1] == '-') {
-            //if the arg is just '--', treat remaining as filenames
-            if (a.len == 2) parse_args = false else {
-                const arg = std.meta.stringToEnum(valid_args, a[2..]) orelse .invalid;
-                switch (arg) {
-                    .dataset => config.dataset_file = args.next(),
-                    .use_default_dataset => config.dataset = &table.the_list,
-                    else => hlp.err_out("unknown arg: {s}", .{a}),
-                }
-            }
-        } else { //compact arg (like -dv)
-            // TODO: iterate over each byte in arg
-        } else {
-            try stdout.print("parsing as filename\n", .{});
-            try config.files.append(alloc, a);
-        }
-    }
-
-    //err if both default dataset and dataset file args used
-    if (config.dataset) |_| if (config.dataset_file) |_| {
-        hlp.err_out(
-            \\provided conflicting args:
-            \\  can't use both default dataset and custom dataset
-            \\
-        , .{});
-    };
     
     if (config.dataset_file) |filename| {
         const path = std.fs.cwd().realpathAlloc(alloc, filename) catch |e| {
