@@ -11,8 +11,11 @@ pub fn err_out(
     comptime msg:[]const u8,
     args:anytype
 ) void {
+    //add a newline to end of message if missing
     const m = if (msg[msg.len-1] != '\n') msg ++ "\n" else msg;
+    //print the error 
     Print.err("ERROR: " ++ m, args) catch @panic(m);
+    //and exit
     std.process.exit(1);
 }
 
@@ -208,6 +211,7 @@ pub const Print = struct {
     }
 };
 
+//helper to get a dataset entry struct
 pub fn mk_dataset_entry(
     header:[]const u8,
     desc:[]const u8,
@@ -216,7 +220,6 @@ pub fn mk_dataset_entry(
     ext:?[]const u8,
     offset:usize,
 ) table.Filetype {
-    defer std.debug.print("{x}\n", .{desc});
     return table.Filetype {
         .header = header,
         .desc = desc,
@@ -227,53 +230,85 @@ pub fn mk_dataset_entry(
     };
 }
 
+//helper get a formatted dataset entry string
 pub fn dataset_entry_to_fmt_str(
     alloc:std.mem.Allocator,
     entry:table.Filetype
 ) ![]const u8 {
+    //generate the trailer string
     const trailer = if (entry.trailer) |trailer| b: {
+        //init an arraylist as a dynamic buffer 
         var arr = try std.ArrayList(u8).initCapacity(alloc, 0);
         defer _ = arr.deinit(alloc);
+
+        //for each byte in the trailer string
         for (trailer) |b| {
+            //add '\x'
             try arr.print(alloc, "\\x", .{});
+            //if the byte is less than '\x0F', add a zero 
             if (b <= '\x0F')
                 try arr.print(alloc, "0", .{});
+            //add hex digit for byte
             try arr.print(alloc, "{X}", .{b});
         }
+
+        //get a slice of the items
         const slice = try arr.toOwnedSlice(alloc);
-        break :b if (slice[0] != '"') blk: {
+
+        //if the slice isn't in quotes (shouldn't be, but just in-case)
+        if (slice[0] != '"'){
+            //make sure the owned slice is freed and break with a new slice in quotes 
             defer alloc.free(slice);
-            break :blk try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
-        } else 
-            slice;
-    } else
-        try std.fmt.allocPrint(alloc, "null", .{});
+            break :b try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
+        } else {
+            //otherwise just use the slice
+            break :b slice;
+        }
+    } else b: {
+        //this is a dupe of a hard-coded string so the free-ing logic is simple
+        break :b try alloc.dupe(u8, "null");
+    };
     defer alloc.free(trailer);
 
+    //generate the header string
     const header = b: {
+        //init an arraylist
         var arr = try std.ArrayList(u8).initCapacity(alloc, 0);
         defer _ = arr.deinit(alloc);
+
+        //for each byte in the header string
         for (entry.header) |b| {
+            //add '\x'
             try arr.print(alloc, "\\x", .{});
+            //if the byte is less than a '\x0F' byte, add a zero 
             if (b <= '\x0F')
                 try arr.print(alloc, "0", .{});
+
+            //add the hex digit for byte 
             try arr.print(alloc, "{X}", .{b});
         }
+
+        //create an newly allocated string with the arraylist items
         const slice = try arr.toOwnedSlice(alloc);
-        break :b if (slice[0] != '"') blk: {
+
+        //make sure it's in quotes
+        if (slice[0] != '"') {
             defer alloc.free(slice);
-            break :blk try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
-        } else 
-            slice;
+            break :b try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
+        } else  {
+            break :b slice;
+        }
     };
     defer alloc.free(header);
 
+    //put the extension in quotes if present or null
     const ext = if (entry.ext) |ext|
         try std.fmt.allocPrint(alloc, "\"{s}\"", .{ext})
     else
         try std.fmt.allocPrint(alloc, "null", .{});
     defer alloc.free(ext);
 
+    //finally, return a ZON formatted string
     return try std.fmt.allocPrint(
         alloc,
         \\.{{
@@ -295,40 +330,58 @@ pub fn dataset_entry_to_fmt_str(
     });
 }
 
+//helper to get a line from stdin with some extra logic
 pub fn stdin_ln(
     stdin:*std.io.Reader,
     alloc:std.mem.Allocator,
-    comptime prompt:[]const u8,
+    prompt:[]const u8,
     comptime empty_allowed:bool,
 ) []const u8 {
+    //keep trying until input is valid
     while (true) {
+        //print the prompt
         stdout.print("{s}  ", .{prompt}) catch {};
 
+        //get the raw input 
         const raw = stdin.takeDelimiter('\n') catch {
             @panic("failed to read stdin");
         } orelse {
             @panic("failed to read stdin");
         };
 
+        //trim whitespace 
         const trimmed = std.mem.trim(u8, raw, "\r ");
+
+        //if non-empty or allowed ot be empty, return a newly allocated string
+        //  if not newly allocated, data seems to change on it's own
+        //    (probably who owns the memory, or I'm just unaware of something
+        //      Zig does with the data)
         if (trimmed.len > 0 or empty_allowed) return alloc.dupe(u8, trimmed) catch |e| {
             @panic(@errorName(e));
         };
 
+        //since it hasn't returned yet, the input was invalid
         stderr.print("invalid input, cannot be empty\n", .{}) catch {};
     }
 }
 
+//helper to convert a hex string to raw bytes (parse it) with some extra logic
 pub fn hex_to_bytes(
     alloc:std.mem.Allocator,
     in:[]const u8,
 ) ![]u8 {
+    //get the number of space
     const num_spaces = std.mem.count(u8, in, " ");
-    const buf:[]u8 = try alloc.alloc(u8, in.len - num_spaces);
-    _ = std.mem.replace(u8, in, " ", "", buf);
-    defer alloc.free(buf);
 
+    //allocate a buffer for the size of input minus spaces 
+    const buf:[]u8 = try alloc.alloc(u8, in.len - num_spaces);
+    defer alloc.free(buf);
+    
+    //remove any spaces from input
+    _ = std.mem.replace(u8, in, " ", "", buf);
+
+    //allocate another buffer for the result
     const buf2:[]u8 = try alloc.alloc(u8, buf.len);
-    const res = try std.fmt.hexToBytes(buf2, buf);
-    return res;
+    //it is up to the fn caller to free the slice
+    return try std.fmt.hexToBytes(buf2, buf);
 }

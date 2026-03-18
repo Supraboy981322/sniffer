@@ -158,49 +158,74 @@ pub fn main() !void {
     }
 }
 
+//interactively generate entries (loop)
 // TODO: make this append it to the dataset config file (if found)
 fn mk_entry(allocator:std.mem.Allocator) !void {
+    //print instructions
     try stdout.print(
-        \\creating an entry... I will need:
-        \\  the header ("magic" bytes at the beginning)
-        \\  a brief description of the filetype
-        \\  the category (type) that the filetype falls into
+        \\creating entries... I will need:
+        \\  - the header ("magic" bytes at the beginning)
+        \\  - a brief description of the filetype
+        \\  - the category (type) that the filetype falls into
         \\      (eg: 'Pictures' or 'Compressed archive')
-        \\  the trailer ("magic" bytes at the ending)
-        \\  the file extension (if applicable)
-        \\  the offset of the header
+        \\  - the trailer ("magic" bytes at the ending)
+        \\  - the file extension (if applicable)
+        \\  - the offset of the header
         \\
     , .{});
     
+    //a buffer for stdin 
     var buffer:[1024]u8 = undefined;
     const stdin = &@constCast(&std.fs.File.stdin().reader(&buffer)).interface;
 
+    //create an arena allocator from the provided allocator
+    //  (so it can be reset on each iteration of the interactive loop
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer _ = arena.deinit();
+    //get a new allocator from it
     const alloc = arena.allocator();
 
-    while (true) {
-        defer _ = arena.reset(.free_all);
-        var ok:bool = false;
-        while (!ok) {
-            const ready = hlp.stdin_ln(
+    //determines if 'continue?' or 'ready?' is printed
+    var started:bool = false;
+
+    //said interactive loop
+    outer_loop: while (true) {
+        defer {
+            started = true; //mark as started for next iteration 
+            _ = arena.reset(.free_all); //reset the arena for next iteration
+        }
+
+        //continuously prompt to continue until valid response
+        inner_loop: while (true) {
+            //get the response
+            var response = hlp.stdin_ln(
 		stdin,
                 alloc,
-                "ready? (Y/n)",
+                if (started) "another? (Y/n)" else "ready? (Y/n)",
                 false,
             );
-            defer alloc.free(ready);
+            defer alloc.free(response);
 
-            if (ready[0] == 'y') {
-                ok = true;
-            } else if (ready[0] == 'n') {
-                return;
+            //make response lowercase
+            for (response, 0..) |b, i| {
+                response[i] = std.ascii.toLower(b);
+            }
+
+            //it just has to start with a 'y' to continue
+            if (response[0] == 'y') {
+                break :inner_loop; //move-on to first item
+            //or an 'n' to stop
+            } else if (response[0] == 'n') {
+                break :outer_loop; //end interactive loop
+            //anything else will err and continue loop
             } else {
-                try stderr.print("invalid response, need 'y' (yes) or 'n' (no)", .{});
+                try stderr.print("\tinvalid response\n\tneed 'y' (yes) or 'n' (no)", .{});
             }
         }
 
+        //get the header "magic" bytes
         const header = inner_loop: while (true) {
+            //read line from stdin 
             const raw = hlp.stdin_ln(
                 stdin,
                 alloc,
@@ -209,9 +234,11 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
             );
             defer alloc.free(raw);
 
+            //break with parsed hex string as bytes
             break :inner_loop hlp.hex_to_bytes(
                 alloc, raw
             ) catch |e| {
+                //print err and try again 
                 try stderr.print("\tinvalid: {s}\n", .{raw});
                 try stderr.print("\t({t})\n", .{e});
                 continue :inner_loop;
@@ -219,6 +246,7 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
         };
         defer alloc.free(header);
 
+        //get the description
         const desc = hlp.stdin_ln(
             stdin,
             alloc,
@@ -227,6 +255,7 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
         );
         defer alloc.free(desc);
 
+        //get the category
         const category = hlp.stdin_ln(
             stdin,
             alloc,
@@ -235,7 +264,9 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
         );
         defer alloc.free(category);
 
+        //get the trailer "magic" bytes
         const trailer = inner_loop: while (true) {
+            //get line from stdin
             const raw = hlp.stdin_ln(
 		stdin,
                 alloc,
@@ -243,17 +274,24 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
                 true,
             );
             defer alloc.free(raw);
+
+            //if empty, set to null
             if (raw.len < 1) break :inner_loop null;
+
+            //break with parsed hex string as raw bytes 
             break :inner_loop hlp.hex_to_bytes(
                 alloc, raw
             ) catch |e| {
+                //try again on err 
                 try stderr.print("\tinvalid: {s}\n", .{raw});
                 try stderr.print("\t({t})\n", .{e});
                 continue :inner_loop;
             };
         };
+        //only free the trailer if not null
         defer if (trailer) |t| alloc.free(t);
 
+        //get the file extension
         const ext = b: {
             const raw = hlp.stdin_ln(
 		stdin,
@@ -261,11 +299,15 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
                 "file_extension (empty for none):",
                 true,
             );
+            //if empty, set to null
             break :b if (raw.len > 0) raw else null;
         };
+        //only free if not null
         defer if (ext) |e| alloc.free(e);
 
+        //get header "magic" bytes offset
         const offset:usize = inner_loop: while (true) {
+            //read line from stdin
             const raw = hlp.stdin_ln(
                 stdin, 
                 alloc,
@@ -273,18 +315,23 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
                 true,
             );
             defer alloc.free(raw);
+
+            //set to 0 if empty
             if (raw.len < 1) break :inner_loop 0; 
             
+            //break with converted to int
             break :inner_loop std.fmt.parseInt(
                 usize,
                 raw,
                 10,
             ) catch |e| {
-                try stderr.print("NaN {t}\n", .{e});
+                //continue loop on err
+                try stderr.print("\tNaN {t}\n", .{e});
                 continue :inner_loop;
             };
         };
 
+        //create an entry struct (table.Filetype) 
         const entry = hlp.mk_dataset_entry(
             header,
             desc,
@@ -294,9 +341,11 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
             offset,
         );
 
+        //format the entry to a string
         const fmt_entry = try hlp.dataset_entry_to_fmt_str(alloc, entry);
         defer alloc.free(fmt_entry);
 
+        //print it
         try stdout.print(
             \\result:
             \\{s}
