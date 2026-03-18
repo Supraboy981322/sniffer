@@ -336,7 +336,7 @@ pub fn stdin_ln(
     alloc:std.mem.Allocator,
     prompt:[]const u8,
     comptime empty_allowed:bool,
-) []const u8 {
+) []u8 {
     //keep trying until input is valid
     while (true) {
         //print the prompt

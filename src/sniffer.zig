@@ -50,9 +50,6 @@ pub const Sniffer = struct {
             break :b ext;
         } else null; //default to null (no extension)
 
-        //print it  TODO: remove this
-        print.debug("{s}", .{ext orelse "[no ext found]"});
-
         //return a new sniffer
         return Sniffer {
             .input = input,

@@ -41,8 +41,13 @@ pub fn main() !void {
         //parse .zon dataset file into '[]table.Filetype'
         print.debug("parsing dataset ZON into table: {s}", .{filename});
         config.dataset = hlp.parse_dataset_zon(alloc, path) catch |e| {
-            // TODO: handle other errors
+            if (@TypeOf(e) == std.fs.File.OpenError) {
+                hlp.err_out("failed to open ZON dataset file ({s}): {t}", .{filename, e});
+            }
             switch (e) {
+                error.ParseZon => hlp.err_out(
+                    "dataset format appears to be invalid ({s})", .{filename}
+                ),
                 else => hlp.err_out("failed to parse dataset file ({s}): {t}\n", .{filename, e}),
             }
             unreachable;
@@ -65,11 +70,16 @@ pub fn main() !void {
         //parse '.zon' dataset file into table 
         print.debug("parsing dataset ZON into table: {s}", .{dataset_path}); 
         config.dataset = hlp.parse_dataset_zon(alloc, dataset_path) catch |e| {
-            // TODO: handle other errors
+            if (@TypeOf(e) == std.fs.File.OpenError) {
+                hlp.err_out("failed to open ZON dataset file ({s}): {t}", .{dataset_path, e});
+            }
             switch (e) {
-                else => {
-                    hlp.err_out("failed to parse dataset file ({s}): {t}\n", .{dataset_path, e});
-                },
+                error.ParseZon => hlp.err_out(
+                    "dataset format appears to be invalid ({s})", .{dataset_path}
+                ),
+                else => hlp.err_out(
+                    "failed to parse dataset file ({s}): {t}\n", .{dataset_path, e}
+                ),
             }
             unreachable;
         };
@@ -198,7 +208,7 @@ fn mk_entry(allocator:std.mem.Allocator) !void {
         //continuously prompt to continue until valid response
         inner_loop: while (true) {
             //get the response
-            var response = hlp.stdin_ln(
+            var response:[]u8 = hlp.stdin_ln(
 		stdin,
                 alloc,
                 if (started) "another? (Y/n)" else "ready? (Y/n)",
