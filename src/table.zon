@@ -4086,6 +4086,14 @@
         .offset = 0,
     },
     .{
+        .header = "\x00\x61\x73\x6D",
+        .desc = "WebAssembly Binary program",
+        .type = "Programming",
+        .trailer = null,
+        .ext = "WASM",
+        .offset = 0,
+    },
+    .{
         .header = "\x03\x00\x00\x00",
         .desc = "Quicken price history",
         .type = "Finance",
