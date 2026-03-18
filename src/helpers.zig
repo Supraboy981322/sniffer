@@ -11,7 +11,8 @@ pub fn err_out(
     comptime msg:[]const u8,
     args:anytype
 ) void {
-    Print.err(msg, args) catch @panic(msg);
+    const m = if (msg[msg.len-1] != '\n') msg ++ "\n" else msg;
+    Print.err("ERROR: " ++ m, args) catch @panic(m);
     std.process.exit(1);
 }
 
@@ -105,8 +106,23 @@ pub const Args = struct {
                         else => err_out("unknown arg: {s}", .{a}),
                     }
                 }
-            } else { //compact arg (like '-dv')
-                // TODO: iterate over each byte in arg
+            } else { //compact args (like '-dv')
+                //I can just switch on the individual bytes here since they're just 8-bit ints
+                for (a[1..]) |c| switch (c) {
+                    'd' => config.dataset_file = args.next(),
+                    'D' => config.dataset = &table.the_list,
+                    'q', 'v' => {
+                        //convert the 'Args.Valid' enum type to a 'Print.Valid_LVLs' enum
+                        const lvl:Print.Valid_LVLs = if (c == 'q') .quiet else .verbose; 
+
+                        //attempt to set the level (err if already changed)
+                        if (config.print_lvl == .normal)
+                            config.print_lvl = lvl
+                        else
+                            conflict("print level", false);
+                    },
+                    else => err_out("unknown arg: {c} (in: {s})", .{c, a}),
+                };
             } else {
                 //otherwise parse as an input filename
                 Print.debug("parsing as filename\n", .{});
