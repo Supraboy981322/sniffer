@@ -89,7 +89,7 @@ pub fn main() !void {
 
         //stat the file before reading it
         const stat = std.fs.cwd().statFile(name) catch |e| {
-            hlp.err_out("couldn't stat file: {t}\n", .{e});
+            hlp.err_out("couldn't stat file ({s}): {t}\n", .{name, e});
             unreachable;
         };
 
@@ -103,7 +103,7 @@ pub fn main() !void {
         var file = std.fs.cwd().openFile(name, .{
             .lock = .exclusive,
         }) catch |e| {
-            hlp.err_out("couldn't open file: {t}\n", .{e});
+            hlp.err_out("couldn't open file ({s}): {t}\n", .{name, e});
             unreachable;
         };
 
@@ -140,7 +140,7 @@ pub fn main() !void {
             \\  type: {s}
             \\  file extension: {s}
             \\  description: {s}
-            \\  
+            \\
         , .{
             name,
             match.type,
