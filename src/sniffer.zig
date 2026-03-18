@@ -95,25 +95,30 @@ pub const Sniffer = struct {
             //if not-null (a match), first check if the file extensions match
             if (current) |cur| if (self.file_ext) |ext_R| {
                 //make them both lowercase
-                var ext = try std.ascii.allocLowerString(alloc, ext_R);
-                var ext_match = try std.ascii.allocLowerString(alloc, ext_R);
+                const ext = try std.ascii.allocLowerString(alloc, ext_R);
+                const ext_match = if (cur.ext) |e|
+                    try std.ascii.allocLowerString(alloc, e)
+                else
+                    null;
 
                 //make sure the allocated memory is freed
-                defer for (&[_]*[]u8{
-                    &ext, &ext_match
-                }) |*thing| alloc.free(thing.*.*);
+                defer {
+                    alloc.free(ext);
+                    if (ext_match) |e| alloc.free(e);
+                }
 
                 //if the file-extensions match, go ahead and return it 
-                if (std.mem.eql(u8, ext, ext_match)) {
-                    print.debug("extenstion matched ({s})", .{ext_match});
-                    return cur;
-                } else {
-                    //otherwise make note of it (so *something* can be returned later)
-                    self.best_match = cur;
-                    print.debug("current best match: {s}", .{
-                        cur.ext orelse "[no ext]"
+                if (ext_match) |match_ext| if (std.mem.eql(u8, ext, match_ext)) {
+                    print.debug("extenstion matched ({s}) ; sanity check: {s}", .{
+                        match_ext, ext
                     });
-                }
+                    return cur;
+                };
+                //otherwise make note of it (so *something* can be returned later)
+                self.best_match = cur;
+                print.debug("current best match: {s}", .{
+                    cur.ext orelse "[no ext]"
+                });
             } else {
                 //if no file extension provided, then just return the first match
                 print.debug("best match: {s}", .{cur.ext orelse "[no ext]"});
