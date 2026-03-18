@@ -42,6 +42,8 @@ pub fn parse_dataset_zon(
 }
 
 pub const Args = struct {
+
+    //local enum type for valid args 
     const Valid = enum {
         dataset,
         use_default_dataset,
@@ -49,6 +51,8 @@ pub const Args = struct {
         quiet,
         invalid,
     };
+
+    //helper to parse the args
     pub fn parse(
         alloc:std.mem.Allocator
     ) !globs.Config {
@@ -66,28 +70,45 @@ pub const Args = struct {
         //set to 'false' if '--' passed, so all remaining args are reated as filenames 
         var parse_remaining: bool = true;
         loop: while (args.next()) |a| {
+            //skip empty args
             if (a.len < 1) continue :loop;
-            //gated if statement (i call it that, not sure what i'm supposed to refer to it as)
+
+            //gated if statement (I call it that, not sure what I'm supposed to refer to it as)
             if (a[0] == '-' and a.len > 1 and parse_remaining) if (a[1] == '-') {
+
                 //if the arg is just '--', treat remaining args as filenames
                 if (a.len == 2) parse_remaining = false else {
+
+                    //convert the arg to an enum (so it can be switched on)
                     const arg = std.meta.stringToEnum(Valid, a[2..]) orelse .invalid;
+
+                    //switch on arg enum
                     switch (arg) {
+                        //dataset file
                         .dataset => config.dataset_file = args.next(),
+
+                        //default dataset 
                         .use_default_dataset => config.dataset = &table.the_list,
+
                         .quiet, .verbose => {
+                            //convert the 'Args.Valid' enum type to a 'Print.Valid_LVLs' enum
                             const lvl = std.meta.stringToEnum(Print.Valid_LVLs, @tagName(arg));
+
+                            //attempt to set the level (err if already changed)
                             if (config.print_lvl == .normal)
                                 config.print_lvl = lvl
                             else
                                 conflict("print level", false);
                         },
+
+                        //all else invalid
                         else => err_out("unknown arg: {s}", .{a}),
                     }
                 }
-            } else { //compact arg (like -dv)
+            } else { //compact arg (like '-dv')
                 // TODO: iterate over each byte in arg
             } else {
+                //otherwise parse as an input filename
                 Print.debug("parsing as filename\n", .{});
                 try config.files.append(alloc, a);
             }
@@ -103,6 +124,7 @@ pub const Args = struct {
 
     //local helper to print arg conflict err 
     fn conflict(what:[]const u8, comptime known_conflict: bool) void {
+        //print different error format if it's a known conflict 
         if (known_conflict)
             err_out(
                 \\provided conflicting args

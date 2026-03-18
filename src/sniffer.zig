@@ -1,6 +1,7 @@
 const std = @import("std");
 const table = @import("table.zig");
 
+// NOTE: for reference
 //  pub const Filetype = struct {
 //    header:[]const u8,
 //    desc:[]const u8,
