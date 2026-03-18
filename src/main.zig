@@ -8,7 +8,7 @@ const the_list = table.the_list;
 
 //create stderr and stdout interfaces with no buffer (so I don't have to call 'flush()')
 const stdout = &@constCast(&std.fs.File.stdout().writer(&.{})).interface;
-const stderr = &@constCast(&std.fs.File.stderr().writer(&.{})).interface;
+const print = hlp.Print;
 
 pub fn main() !void {
     //the main allocator
@@ -20,6 +20,10 @@ pub fn main() !void {
     defer {
         config.files.deinit(alloc);
     }
+
+    //set the print level
+    print.lvl = if (config.print_lvl) |lvl| lvl else .normal;
+
     
     if (config.dataset_file) |filename| {
         const path = std.fs.cwd().realpathAlloc(alloc, filename) catch |e| {
@@ -34,7 +38,7 @@ pub fn main() !void {
     } else {
         //get the home directory
         const home = std.process.getEnvVarOwned(alloc, "HOME") catch {
-            hlp.err_out("either unsupported (non-UNIX) system or $HOME not set", .{});
+            hlp.err_out("either unsupported (non-UNIX) system or $HOME not set\n", .{});
             unreachable;
         };
         defer alloc.free(home);
@@ -61,6 +65,7 @@ pub fn main() !void {
     if (config.files.items.len > 0) loop: for (config.files.items) |name| {
         defer _ = arena.reset(.free_all);
         var allocator = arena.allocator();
+        print.debug("about to do: {s}", .{name});
 
         //stat the file before reading it
         const stat = std.fs.cwd().statFile(name) catch |e| {
@@ -93,6 +98,7 @@ pub fn main() !void {
         //  the '.?' assumes non-null
         var sniffer = Sniffer.init(input, name, config.dataset.?); 
         
+        print.debug("checking for a match", .{});
         //try to find a match using everything in the dataset 
         const match = sniffer.chk_all() catch {
             try stdout.print(

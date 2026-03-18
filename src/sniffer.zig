@@ -10,6 +10,8 @@ const table = @import("table.zig");
 //    offset:usize,
 //  };
 
+const print = @import("helpers.zig").Print;
+
 pub const Sniffer = struct {
 
     input:[]u8,                        //the input byte string
@@ -27,15 +29,25 @@ pub const Sniffer = struct {
     };
 
     //initializer (creates a new sniffer instance)
-    pub fn init(input:[]u8, filename:?[]const u8, dataset:?[]table.Filetype) Sniffer {
+    pub fn init(
+        input:[]u8,
+        filename:?[]const u8,
+        dataset:?[]table.Filetype
+    ) Sniffer {
         //get the file extension (maybe null)
         const ext = if (filename) |name| b: {
             const idx = std.mem.lastIndexOf(u8, name, ".");
-            break :b if (idx) |i| name[i + 1..] else null;
+            const n = if (idx) |i| name[i + 1..] else null;
+            if (n) |_|
+                print.debug("detected file extension: {s}", .{n.?})
+            else
+                print.debug("no file extension detected for {s}", .{name});
+
+            break :b n;
         } else null;
 
         //print it  TODO: remove this
-        std.debug.print("{s}\n", .{ext orelse "[no ext found]"});
+        print.debug("{s}", .{ext orelse "[no ext found]"});
 
         //return a new sniffer
         return Sniffer {
@@ -56,7 +68,7 @@ pub const Sniffer = struct {
         //anything in this defer block runs just before fn returns
         defer {
             //print what's about to return  TODO: remove this
-            std.debug.print("returning: {s}\n", .{
+            print.debug("returning: {s}", .{
                 if (self.best_match) |best|
                     best.ext orelse "[no ext]"
                 else
@@ -70,6 +82,7 @@ pub const Sniffer = struct {
         while (true) {
             //attempt to get the next item in the table
             const current = self.get_next() catch |e| {
+                print.debug("end of dataset, returning best match or error", .{});
                 //if there's an error (end of table) either
                 //  return best match or end of table error
                 return if (self.best_match) |best| best else e;
@@ -88,16 +101,18 @@ pub const Sniffer = struct {
 
                 //if the file-extensions match, go ahead and return it 
                 if (std.mem.eql(u8, ext, ext_match)) {
-                    std.debug.print("extenstion matched ({s})\n", .{ext_match});
+                    print.debug("extenstion matched ({s})", .{ext_match});
                     return cur;
                 } else {
                     //otherwise make note of it (so *something* can be returned later)
                     self.best_match = cur;
-                    std.debug.print("current best match: {s}\n", .{cur.ext orelse "[no ext]"});
+                    print.debug("current best match: {s}", .{
+                        cur.ext orelse "[no ext]"
+                    });
                 }
             } else {
                 //if no file extension provided, then just return the first match
-                std.debug.print("best match: {s}\n", .{cur.ext orelse "[no ext]"});
+                print.debug("best match: {s}", .{cur.ext orelse "[no ext]"});
                 return cur;
             };
         }
@@ -107,39 +122,69 @@ pub const Sniffer = struct {
     fn get_next(self:*Sniffer) !?table.Filetype {
         //increment the index on return
         defer self.idx += 1;
-        return //if at end of table, return error
-            if (self.table.len <= self.idx)
-                Error.NoMatch
-            //otherwise, if it's a match, return the item
-            else if (self.is_match(self.table[self.idx]))
-                self.table[self.idx] 
-            //otherwise return null
-            else
-                null;
+
+        //if at end of table, return error
+        if (self.table.len <= self.idx) {
+            print.debug("no match found in dataset", .{});
+            return Error.NoMatch;
+
+        //otherwise, if it's a match, return the item
+        } else if (self.is_match(self.table[self.idx])) {
+            const match = self.table[self.idx];
+            print.debug("found a match: {s}", .{
+                if (match.ext) |ext| ext else "[no file extension]"
+            });
+            return match;
+
+        //otherwise return null
+        } else 
+            return null;
     }
 
     //public helper to check if something is a match 
     pub fn is_match(self:*Sniffer, check:table.Filetype) bool {
         //get the end "magic" (empty string if null
         const end_bytes = if (check.trailer) |end| end else "";
+
         //calculate the minimum size (to fit header + trailer + offset) 
         const min_size = check.header.len + end_bytes.len + check.offset;
 
         //not a match if too short 
-        if (self.input.len < min_size)
+        if (self.input.len < min_size) {
+            print.debug("input too short for {s}, not a match", .{
+                if (check.ext) |ext| ext else "[no file extension]"
+            });
             return false;
+        }
 
         //header
-        for (check.header, 0..) |b, i|
-            if (self.input[check.offset+i] != b)
+        for (check.header, 0..) |b, i| {
+            const byte_idx = check.offset + i;
+            const byte = self.input[byte_idx];
+            if (byte != b) {
+                print.debug("header did not match: {s}", .{
+                    if (check.ext) |ext| ext else "[no file extension]"
+                });
                 return false;
+            }
+        }
 
         //trailer
-        for (end_bytes, 0..) |b, i|
-            if (self.input[self.input.len - (i + end_bytes.len)] != b)
+        for (end_bytes, 0..) |b, i| {
+            const needed_end = i + end_bytes.len;
+            const byte_idx = self.input.len - needed_end;
+            const byte = self.input[byte_idx];
+            //self.input[self.input.len - (i + end_bytes.len)]
+            if (byte != b) {
+                print.debug("head did match, but not trailer: {s}", .{
+                    if (check.ext) |ext| ext else "[no file extension]"
+                });
                 return false;
+            }
+        }
 
         //if all other conditions are fine, it's a match
+        print.debug("found a match: {s}", .{check.desc}); 
         return true;
     }
 };

@@ -11,7 +11,7 @@ pub fn err_out(
     comptime msg:[]const u8,
     args:anytype
 ) void {
-    stderr.print(msg, args) catch @panic(msg);
+    Print.err(msg, args) catch @panic(msg);
     std.process.exit(1);
 }
 
@@ -45,6 +45,8 @@ pub const Args = struct {
     const Valid = enum {
         dataset,
         use_default_dataset,
+        verbose,
+        quiet,
         invalid,
     };
     pub fn parse(
@@ -54,6 +56,7 @@ pub const Args = struct {
         var config = globs.Config {
             //holds the filenames for each file to check (set by args)
             .files = try std.ArrayList([:0]const u8).initCapacity(alloc, 0),
+            .print_lvl = .normal
         };
         
         var args = std.process.args();
@@ -70,13 +73,15 @@ pub const Args = struct {
                     switch (arg) {
                         .dataset => config.dataset_file = args.next(),
                         .use_default_dataset => config.dataset = &table.the_list,
+                        .verbose => config.print_lvl = .verbose,
+                        .quiet => config.print_lvl = .quiet,
                         else => err_out("unknown arg: {s}", .{a}),
                     }
                 }
             } else { //compact arg (like -dv)
                 // TODO: iterate over each byte in arg
             } else {
-                try stdout.print("parsing as filename\n", .{});
+                Print.debug("parsing as filename\n", .{});
                 try config.files.append(alloc, a);
             }
         }
@@ -90,5 +95,35 @@ pub const Args = struct {
             , .{});
         };
         return config;
+    }
+};
+
+pub const Print = struct {
+    pub const Valid_LVLs = enum {
+        verbose,
+        normal,
+        quiet,
+    };
+    pub var lvl:Valid_LVLs = .normal;
+
+    pub fn out(
+        comptime msg:[]const u8,
+        args:anytype
+    ) !void {
+        if (lvl != .quiet) try stdout.print(msg, args);
+    }
+
+    pub fn err(
+        comptime msg:[]const u8,
+        args:anytype
+    ) !void {
+        if (lvl != .quiet) try stderr.print(msg, args);
+    }
+
+    pub fn debug(
+        comptime msg:[]const u8,
+        args:anytype
+    ) void {
+        if (lvl == .verbose) stderr.print("DEBUG: " ++ msg ++ "\n", args) catch {};
     }
 };
