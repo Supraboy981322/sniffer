@@ -26,6 +26,7 @@ pub fn main() !void {
 
     
     if (config.dataset_file) |filename| {
+        defer print.debug("using dataset file: {s}", .{filename});
         //get the full path to the dataset file
         print.debug("getting the full path to dataset file: {s}", .{filename});
         const path = std.fs.cwd().realpathAlloc(alloc, filename) catch |e| {
