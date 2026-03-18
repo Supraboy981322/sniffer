@@ -8,6 +8,7 @@ const the_list = table.the_list;
 
 //create stderr and stdout interfaces with no buffer (so I don't have to call 'flush()')
 const stdout = &@constCast(&std.fs.File.stdout().writer(&.{})).interface;
+const stderr = &@constCast(&std.fs.File.stderr().writer(&.{})).interface;
 const print = hlp.Print;
 
 pub fn main() !void {
@@ -23,6 +24,8 @@ pub fn main() !void {
 
     //set the print level
     print.lvl = if (config.print_lvl) |lvl| lvl else .normal;
+
+    if (config.mk_entry) return mk_entry(alloc);
 
     
     if (config.dataset_file) |filename| {
@@ -152,5 +155,151 @@ pub fn main() !void {
     } else print.debug("end of files to check", .{}) else {
         //no filename provided (no args), print to stderr and exit
         hlp.err_out("no filename provided\n", .{});
+    }
+}
+
+// TODO: make this append it to the dataset config file (if found)
+fn mk_entry(allocator:std.mem.Allocator) !void {
+    try stdout.print(
+        \\creating an entry... I will need:
+        \\  the header ("magic" bytes at the beginning)
+        \\  a brief description of the filetype
+        \\  the category (type) that the filetype falls into
+        \\      (eg: 'Pictures' or 'Compressed archive')
+        \\  the trailer ("magic" bytes at the ending)
+        \\  the file extension (if applicable)
+        \\  the offset of the header
+        \\
+    , .{});
+    
+    var buffer:[1024]u8 = undefined;
+    const stdin = &@constCast(&std.fs.File.stdin().reader(&buffer)).interface;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer _ = arena.deinit();
+    const alloc = arena.allocator();
+
+    while (true) {
+        defer _ = arena.reset(.free_all);
+        var ok:bool = false;
+        while (!ok) {
+            const ready = hlp.stdin_ln(
+		stdin,
+                alloc,
+                "ready? (Y/n)",
+                false,
+            );
+            defer alloc.free(ready);
+
+            if (ready[0] == 'y') {
+                ok = true;
+            } else if (ready[0] == 'n') {
+                return;
+            } else {
+                try stderr.print("invalid response, need 'y' (yes) or 'n' (no)", .{});
+            }
+        }
+
+        const header = inner_loop: while (true) {
+            const raw = hlp.stdin_ln(
+                stdin,
+                alloc,
+                "header:",
+                false,
+            );
+            defer alloc.free(raw);
+
+            break :inner_loop hlp.hex_to_bytes(
+                alloc, raw
+            ) catch |e| {
+                try stderr.print("\tinvalid: {s}\n", .{raw});
+                try stderr.print("\t({t})\n", .{e});
+                continue :inner_loop;
+            };
+        };
+        defer alloc.free(header);
+
+        const desc = hlp.stdin_ln(
+            stdin,
+            alloc,
+            "description:",
+            false,
+        );
+        defer alloc.free(desc);
+
+        const category = hlp.stdin_ln(
+            stdin,
+            alloc,
+            "category (type):",
+            false,
+        );
+        defer alloc.free(category);
+
+        const trailer = inner_loop: while (true) {
+            const raw = hlp.stdin_ln(
+		stdin,
+                alloc,
+                "trailer (empty for none):",
+                true,
+            );
+            defer alloc.free(raw);
+            if (raw.len < 1) break :inner_loop null;
+            break :inner_loop hlp.hex_to_bytes(
+                alloc, raw
+            ) catch |e| {
+                try stderr.print("\tinvalid: {s}\n", .{raw});
+                try stderr.print("\t({t})\n", .{e});
+                continue :inner_loop;
+            };
+        };
+        defer if (trailer) |t| alloc.free(t);
+
+        const ext = b: {
+            const raw = hlp.stdin_ln(
+		stdin,
+                alloc,
+                "file_extension (empty for none):",
+                true,
+            );
+            break :b if (raw.len > 0) raw else null;
+        };
+        defer if (ext) |e| alloc.free(e);
+
+        const offset:usize = inner_loop: while (true) {
+            const raw = hlp.stdin_ln(
+                stdin, 
+                alloc,
+                "offset (empty for none):",
+                true,
+            );
+            defer alloc.free(raw);
+            if (raw.len < 1) break :inner_loop 0; 
+            
+            break :inner_loop std.fmt.parseInt(
+                usize,
+                raw,
+                10,
+            ) catch |e| {
+                try stderr.print("NaN {t}\n", .{e});
+                continue :inner_loop;
+            };
+        };
+
+        const entry = hlp.mk_dataset_entry(
+            header,
+            desc,
+            category,
+            trailer,
+            ext,
+            offset,
+        );
+
+        const fmt_entry = try hlp.dataset_entry_to_fmt_str(alloc, entry);
+        defer alloc.free(fmt_entry);
+
+        try stdout.print(
+            \\result:
+            \\{s}
+        , .{ fmt_entry });
     }
 }

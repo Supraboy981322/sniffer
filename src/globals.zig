@@ -10,4 +10,6 @@ pub const Config = struct {
     files:std.ArrayList([:0]const u8),
     //the print level (.verbose, .quiet, or .normal)
     print_lvl:?@import("helpers.zig").Print.Valid_LVLs,
+    //determines if helper to make an entry is run
+    mk_entry:bool = false,
 };

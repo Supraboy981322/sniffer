@@ -50,6 +50,7 @@ pub const Args = struct {
         use_default_dataset,
         verbose,
         quiet,
+        mk_entry,
         invalid,
     };
 
@@ -102,6 +103,14 @@ pub const Args = struct {
                                 conflict("print level", false);
                         },
 
+                        //arg to run a helper to generate a valid ZON entry for the dataset
+                        .mk_entry => {
+                            if (!config.mk_entry)
+                                config.mk_entry = true
+                            else
+                                conflict("mk_entry", false);
+                        },
+
                         //all else invalid
                         else => err_out("unknown arg: {s}", .{a}),
                     }
@@ -111,6 +120,12 @@ pub const Args = struct {
                 for (a[1..]) |c| switch (c) {
                     'd' => config.dataset_file = args.next(),
                     'D' => config.dataset = &table.the_list,
+                    'M' => {
+                        if (!config.mk_entry)
+                            config.mk_entry = true
+                        else
+                            conflict("mk_entry", false);
+                    },
                     'q', 'v' => {
                         //convert the 'Args.Valid' enum type to a 'Print.Valid_LVLs' enum
                         const lvl:Print.Valid_LVLs = if (c == 'q') .quiet else .verbose; 
@@ -192,3 +207,128 @@ pub const Print = struct {
             stderr.print("DEBUG: " ++ msg ++ "\n", args) catch {};
     }
 };
+
+pub fn mk_dataset_entry(
+    header:[]const u8,
+    desc:[]const u8,
+    filetype:[]const u8,
+    trailer:?[]const u8,
+    ext:?[]const u8,
+    offset:usize,
+) table.Filetype {
+    defer std.debug.print("{x}\n", .{desc});
+    return table.Filetype {
+        .header = header,
+        .desc = desc,
+        .trailer = trailer,
+        .ext = ext,
+        .type = filetype,
+        .offset = offset,
+    };
+}
+
+pub fn dataset_entry_to_fmt_str(
+    alloc:std.mem.Allocator,
+    entry:table.Filetype
+) ![]const u8 {
+    const trailer = if (entry.trailer) |trailer| b: {
+        var arr = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer _ = arr.deinit(alloc);
+        for (trailer) |b| {
+            try arr.print(alloc, "\\x", .{});
+            if (b <= '\x0F')
+                try arr.print(alloc, "0", .{});
+            try arr.print(alloc, "{X}", .{b});
+        }
+        const slice = try arr.toOwnedSlice(alloc);
+        break :b if (slice[0] != '"') blk: {
+            defer alloc.free(slice);
+            break :blk try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
+        } else 
+            slice;
+    } else
+        try std.fmt.allocPrint(alloc, "null", .{});
+    defer alloc.free(trailer);
+
+    const header = b: {
+        var arr = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer _ = arr.deinit(alloc);
+        for (entry.header) |b| {
+            try arr.print(alloc, "\\x", .{});
+            if (b <= '\x0F')
+                try arr.print(alloc, "0", .{});
+            try arr.print(alloc, "{X}", .{b});
+        }
+        const slice = try arr.toOwnedSlice(alloc);
+        break :b if (slice[0] != '"') blk: {
+            defer alloc.free(slice);
+            break :blk try std.fmt.allocPrint(alloc, "\"{s}\"", .{slice});
+        } else 
+            slice;
+    };
+    defer alloc.free(header);
+
+    const ext = if (entry.ext) |ext|
+        try std.fmt.allocPrint(alloc, "\"{s}\"", .{ext})
+    else
+        try std.fmt.allocPrint(alloc, "null", .{});
+    defer alloc.free(ext);
+
+    return try std.fmt.allocPrint(
+        alloc,
+        \\.{{
+        \\    .header = {s},
+        \\    .desc = "{s}",
+        \\    .type = "{s}",
+        \\    .trailer = {s},
+        \\    .ext = {s},
+        \\    .offset = {d},
+        \\}},
+        \\
+    , .{
+        header,
+        entry.desc,
+        entry.type,
+        trailer,
+        ext,
+        entry.offset,
+    });
+}
+
+pub fn stdin_ln(
+    stdin:*std.io.Reader,
+    alloc:std.mem.Allocator,
+    comptime prompt:[]const u8,
+    comptime empty_allowed:bool,
+) []const u8 {
+    while (true) {
+        stdout.print("{s}  ", .{prompt}) catch {};
+
+        const raw = stdin.takeDelimiter('\n') catch {
+            @panic("failed to read stdin");
+        } orelse {
+            @panic("failed to read stdin");
+        };
+
+        const trimmed = std.mem.trim(u8, raw, "\r ");
+        if (trimmed.len > 0 or empty_allowed) return alloc.dupe(u8, trimmed) catch |e| {
+            @panic(@errorName(e));
+        };
+
+        stderr.print("invalid input, cannot be empty\n", .{}) catch {};
+    }
+}
+
+pub fn hex_to_bytes(
+    alloc:std.mem.Allocator,
+    in:[]const u8,
+) ![]u8 {
+    const num_spaces = std.mem.count(u8, in, " ");
+    const buf:[]u8 = try alloc.alloc(u8, in.len - num_spaces);
+    _ = std.mem.replace(u8, in, " ", "", buf);
+    defer alloc.free(buf);
+
+    const buf2:[]u8 = try alloc.alloc(u8, buf.len);
+    const res = try std.fmt.hexToBytes(buf2, buf);
+    return res;
+}
