@@ -4,7 +4,7 @@
 //      .desc = [a brief description of the file type],
 //      .type = [the category the filetype falls into],
 //      .trailer = [a string (or null) of hex-encoded "magic" bytes at the end of the file],
-//      .ext = [a string with the expected file extention],
+//      .ext = [a string with the expected file extension],
 //      .offset = [an integer (usize) of how far the offset of the "magic" bytes are located],
 //  },
 

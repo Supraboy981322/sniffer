@@ -109,11 +109,12 @@ pub const Sniffer = struct {
 
                 //if the file-extensions match, go ahead and return it 
                 if (ext_match) |match_ext| if (std.mem.eql(u8, ext, match_ext)) {
-                    print.debug("extenstion matched ({s}) ; sanity check: {s}", .{
+                    print.debug("extension matched ({s}) ; sanity check: {s}", .{
                         match_ext, ext
                     });
                     return cur;
                 };
+
                 //otherwise make note of it (so *something* can be returned later)
                 self.best_match = cur;
                 print.debug("current best match: {s}", .{
