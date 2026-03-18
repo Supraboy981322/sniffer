@@ -1806,6 +1806,14 @@
         .offset = 0,
     },
     .{
+        .header="\x6E\x75\x74\x2F\x00\x00\x00\x00",
+        .desc = "NUT media container files",
+        .type = "Multimedia",
+        .trailer = null,
+        .ext = "NUT",
+        .offset = 0,
+    },
+    .{
         .header = "\x21",
         .desc = "MapInfo Sea Chart",
         .type = "Navigation",
@@ -4843,6 +4851,14 @@
         .type = "Miscellaneous",
         .trailer = null,
         .ext = "FLI",
+        .offset = 0,
+    },
+    .{
+        .header = "\x23\x21",
+        .desc = "A SHEBANG script",
+        .type = "Programming",
+        .trailer = null,
+        .ext = null,
         .offset = 0,
     },
     .{
