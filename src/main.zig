@@ -12,12 +12,13 @@ const stderr = &@constCast(&std.fs.File.stderr().writer(&.{})).interface;
 
 const Config = struct {
     dataset_file:?[]const u8 = null,
-    dataset:[]table.Filetype = undefined,
+    dataset:?[]table.Filetype = null,
     files:std.ArrayList([:0]const u8),
 };
 
 const valid_args = enum {
     dataset,
+    use_default_dataset,
     invalid,
 };
 
@@ -26,17 +27,18 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
     var alloc = gpa.allocator();
-    
-    var args = std.process.args();
-    _ = args.skip(); //skip the path to the binary
 
     var config = Config {
         //holds the filenames for each file to check (set by args)
         .files = try std.ArrayList([:0]const u8).initCapacity(alloc, 0),
     };
+    defer {
+        config.files.deinit(alloc);
+    }
+    
+    var args = std.process.args();
+    _ = args.skip(); //skip the path to the binary
 
-    // TODO: change this to properly evaluate args
-    //  (instead of just treating the last arg as the filename)
     var parse_args: bool = true;
     loop: while (args.next()) |a| {
         if (a.len < 1) continue :loop;
@@ -47,6 +49,7 @@ pub fn main() !void {
                 const arg = std.meta.stringToEnum(valid_args, a[2..]) orelse .invalid;
                 switch (arg) {
                     .dataset => config.dataset_file = args.next(),
+                    .use_default_dataset => config.dataset = &table.the_list,
                     else => hlp.err_out("unknown arg: {s}", .{a}),
                 }
             }
@@ -57,14 +60,23 @@ pub fn main() !void {
             try config.files.append(alloc, a);
         }
     }
+
+    //err if both default dataset and dataset file args used
+    if (config.dataset) |_| if (config.dataset_file) |_| {
+        hlp.err_out(
+            \\provided conflicting args:
+            \\  can't use both default dataset and custom dataset
+            \\
+        , .{});
+    };
     
-    var dataset_zon:[]table.Filetype = undefined;
     if (config.dataset_file) |filename| {
         const path = std.fs.cwd().realpathAlloc(alloc, filename) catch |e| {
             hlp.err_out("failed to get full path to dataset file ({s}): {t}\n", .{filename, e});
             unreachable;
         };
-        dataset_zon = hlp.parse_dataset_zon(alloc, path) catch |e| {
+        defer alloc.free(path);
+        config.dataset = hlp.parse_dataset_zon(alloc, path) catch |e| {
             hlp.err_out("couldn't read dataset file ({s}): {t}\n", .{filename, e});
             unreachable;
         };
@@ -81,7 +93,7 @@ pub fn main() !void {
         const dataset_path = try std.fs.path.join(alloc, path);
         defer alloc.free(dataset_path);
 
-        dataset_zon = hlp.parse_dataset_zon(alloc, dataset_path) catch |e| {
+        config.dataset = hlp.parse_dataset_zon(alloc, dataset_path) catch |e| {
             switch (e) {
                 else => {
                     hlp.err_out("failed to parse dataset file ({s}): {t}\n", .{dataset_path, e});
@@ -90,8 +102,7 @@ pub fn main() !void {
             }
         };
     }
-    defer if (config.dataset_file != null)
-        std.zon.parse.free(alloc, config.dataset);
+    defer std.zon.parse.free(alloc, config.dataset.?);
 
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -129,13 +140,14 @@ pub fn main() !void {
 
         //initialize a sniffer
         //  the '.?' assumes non-null
-        var sniffer = Sniffer.init(input, name, dataset_zon); 
+        var sniffer = Sniffer.init(input, name, config.dataset.?); 
         
         //try to find a match using everything in the dataset 
         const match = sniffer.chk_all() catch {
             try stdout.print(
                 \\filename: {s}
                 \\  couldn't match data
+                \\
             , .{ 
                 name,
             });
