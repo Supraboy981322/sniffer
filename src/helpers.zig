@@ -59,22 +59,29 @@ pub const Args = struct {
             .print_lvl = .normal
         };
         
+        //get the cli args
         var args = std.process.args();
         _ = args.skip(); //skip the path to the binary
 
+        //set to 'false' if '--' passed, so all remaining args are reated as filenames 
         var parse_remaining: bool = true;
         loop: while (args.next()) |a| {
             if (a.len < 1) continue :loop;
-            //gated if statement (i call it that, not sure what i'm supposed to refer to it as) 
+            //gated if statement (i call it that, not sure what i'm supposed to refer to it as)
             if (a[0] == '-' and a.len > 1 and parse_remaining) if (a[1] == '-') {
-                //if the arg is just '--', treat remaining as filenames
+                //if the arg is just '--', treat remaining args as filenames
                 if (a.len == 2) parse_remaining = false else {
                     const arg = std.meta.stringToEnum(Valid, a[2..]) orelse .invalid;
                     switch (arg) {
                         .dataset => config.dataset_file = args.next(),
                         .use_default_dataset => config.dataset = &table.the_list,
-                        .verbose => config.print_lvl = .verbose,
-                        .quiet => config.print_lvl = .quiet,
+                        .quiet, .verbose => {
+                            const lvl = std.meta.stringToEnum(Print.Valid_LVLs, @tagName(arg));
+                            if (config.print_lvl == .normal)
+                                config.print_lvl = lvl
+                            else
+                                conflict("print level", false);
+                        },
                         else => err_out("unknown arg: {s}", .{a}),
                     }
                 }
@@ -88,16 +95,30 @@ pub const Args = struct {
 
         //err if both default dataset and dataset file args used
         if (config.dataset) |_| if (config.dataset_file) |_| {
-            err_out(
-                \\provided conflicting args:
-                \\  can't use both default dataset and custom dataset
-                \\
-            , .{});
+            conflict("default dataset and custom dataset", true);
         };
+
         return config;
+    }
+
+    //local helper to print arg conflict err 
+    fn conflict(what:[]const u8, comptime known_conflict: bool) void {
+        if (known_conflict)
+            err_out(
+                \\provided conflicting args
+                \\  can't use both {s}
+                \\
+            , .{ what })
+        else
+            err_out(
+                \\provided conflicting args
+                \\  provided a '{s}' arg, but it was already set
+                \\
+            , .{ what });
     }
 };
 
+//helper to print to terminal conditionally (based on the level set by args)
 pub const Print = struct {
     pub const Valid_LVLs = enum {
         verbose,
@@ -106,24 +127,30 @@ pub const Print = struct {
     };
     pub var lvl:Valid_LVLs = .normal;
 
+    //regular stdout
     pub fn out(
-        comptime msg:[]const u8,
+        comptime msg:[]const u8, 
         args:anytype
     ) !void {
-        if (lvl != .quiet) try stdout.print(msg, args);
+        if (lvl != .quiet)
+            try stdout.print(msg, args);
     }
 
+    //regular stderr
     pub fn err(
         comptime msg:[]const u8,
         args:anytype
     ) !void {
-        if (lvl != .quiet) try stderr.print(msg, args);
+        if (lvl != .quiet)
+            try stderr.print(msg, args);
     }
 
+    //debug (verbose) printer (no 'try' needed, errors ignored)
     pub fn debug(
         comptime msg:[]const u8,
         args:anytype
     ) void {
-        if (lvl == .verbose) stderr.print("DEBUG: " ++ msg ++ "\n", args) catch {};
+        if (lvl == .verbose)
+            stderr.print("DEBUG: " ++ msg ++ "\n", args) catch {};
     }
 };
