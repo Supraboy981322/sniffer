@@ -421,6 +421,7 @@ pub fn format_ENTIRE_dataset(
         seen.deinit(allocator);
     }
     var res = try std.ArrayList(u8).initCapacity(alloc, 0);
+    try res.appendSlice(alloc, ".{\n");
     outer_loop: for (dataset) |entry| {
         if (entry.ext) |e| {
             var it = std.mem.splitScalar(u8, e, '|');
@@ -459,6 +460,7 @@ pub fn format_ENTIRE_dataset(
         res.deinit(alloc);
         _ = arena.reset(.free_all);
     }
+    try res.appendSlice(alloc, "}\n");
     return caller_owned_allocator.dupe(u8, res.items);
 }
 
@@ -477,7 +479,7 @@ pub fn append_entry(
     alloc:std.mem.Allocator,
     arr:*std.ArrayList(u8),
 ) !void {
-    try arr.appendSlice(alloc, ".{\n    .header = \"");
+    try arr.appendSlice(alloc, "    .{\n        .header = \"");
     for (entry.header) |b| {
         //add '\x'
         try arr.print(alloc, "\\x", .{});
@@ -490,9 +492,9 @@ pub fn append_entry(
     try arr.appendSlice(alloc, "\",\n");
     try arr.print(
         alloc,
-        \\    .desc = "{s}",
-        \\    .type = "{s}",
-        \\    .trailer = 
+        \\        .desc = "{s}",
+        \\        .type = "{s}",
+        \\        .trailer = 
     , .{ 
         entry.desc,
         entry.type,
@@ -516,9 +518,9 @@ pub fn append_entry(
 
     try arr.print(
         alloc,
-        \\    .ext = {s},
-        \\    .offset = {d},
-        \\}},
+        \\        .ext = {s},
+        \\        .offset = {d},
+        \\    }},
         \\
     , .{
         if (entry.ext) |e| try std.fmt.allocPrint(alloc, "\"{s}\"", .{e}) else "null",
