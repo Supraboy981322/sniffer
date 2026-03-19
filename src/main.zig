@@ -91,7 +91,9 @@ pub fn main() !void {
     if (config.print_dataset) {
         const formatted = try hlp.format_ENTIRE_dataset(alloc, config.dataset.?);
         defer alloc.free(formatted);
-        try stdout.print("{s}", .{formatted});
+        stdout.print("{s}", .{formatted}) catch |e| {
+            try stderr.print("stdout write error: {t}", .{e});
+        };
         std.process.exit(0);
     }
 
