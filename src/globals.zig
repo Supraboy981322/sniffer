@@ -12,4 +12,6 @@ pub const Config = struct {
     print_lvl:?@import("helpers.zig").Print.Valid_LVLs,
     //determines if helper to make an entry is run
     mk_entry:bool = false,
+    //determines if the (ENTIRE) dataset should be printed to stdout
+    print_dataset:bool = false,
 };

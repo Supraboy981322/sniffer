@@ -51,9 +51,11 @@ pub const Args = struct {
     const Valid = enum {
         dataset,
         use_default_dataset,
+        default_dataset,
         verbose,
         quiet,
         mk_entry,
+        print_dataset,
         invalid,
     };
 
@@ -93,7 +95,9 @@ pub const Args = struct {
                         .dataset => config.dataset_file = args.next(),
 
                         //default dataset 
-                        .use_default_dataset => config.dataset = &table.the_list,
+                        .default_dataset, .use_default_dataset => {
+                            config.dataset = &table.the_list;
+                        },
 
                         .quiet, .verbose => {
                             //convert the 'Args.Valid' enum type to a 'Print.Valid_LVLs' enum
@@ -110,6 +114,13 @@ pub const Args = struct {
                         .mk_entry => {
                             if (!config.mk_entry)
                                 config.mk_entry = true
+                            else
+                                conflict("mk_entry", false);
+                        },
+
+                        .print_dataset => {
+                            if (!config.print_dataset)
+                                config.print_dataset = true
                             else
                                 conflict("mk_entry", false);
                         },
@@ -152,6 +163,10 @@ pub const Args = struct {
         if (config.dataset) |_| if (config.dataset_file) |_| {
             conflict("default dataset and custom dataset", true);
         };
+
+        if (config.print_dataset and config.files.items.len > 0) {
+            conflict("print_dataset and input files", true);
+        }
 
         return config;
     }
@@ -384,4 +399,129 @@ pub fn hex_to_bytes(
     const buf2:[]u8 = try alloc.alloc(u8, buf.len);
     //it is up to the fn caller to free the slice
     return try std.fmt.hexToBytes(buf2, buf);
+}
+
+pub fn format_ENTIRE_dataset(
+    caller_owned_allocator:std.mem.Allocator,
+    dataset:[]table.Filetype,
+) ![]const u8 {
+    //the main allocator
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var allocator = gpa.allocator();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    //get a new allocator from it
+    const alloc = arena.allocator();
+
+    var seen = try std.ArrayList([]u8).initCapacity(allocator, 0);
+    defer {
+        for (seen.items) |itm| allocator.free(itm);
+        seen.deinit(allocator);
+    }
+    var res = try std.ArrayList(u8).initCapacity(alloc, 0);
+    outer_loop: for (dataset) |entry| {
+        if (entry.ext) |e| {
+            var it = std.mem.splitScalar(u8, e, '|');
+            var added:usize = 0;
+            inner_loop: while (it.next()) |itm| {
+                if (has(@constCast(e), seen)) continue :inner_loop;
+
+                defer added += 1;
+
+                var upper:[]u8 = try allocator.dupe(u8, itm);
+                try seen.append(allocator, for (itm, 0..) |b, i| {
+                        upper[i] = std.ascii.toUpper(b);
+                    } else upper
+                );
+
+                try append_entry(
+                    table.Filetype {
+                        .header = entry.header,
+                        .desc = entry.desc,
+                        .type = entry.type,
+                        .trailer = entry.trailer,
+                        .ext = itm,
+                        .offset = entry.offset,
+                    },
+                    alloc,
+                    &res
+                );
+            }
+            if (added == 0) continue :outer_loop;
+        } else
+            try append_entry(entry, alloc, &res);
+    }
+
+    defer {
+        res.clearAndFree(alloc);
+        res.deinit(alloc);
+        _ = arena.reset(.free_all);
+    }
+    return caller_owned_allocator.dupe(u8, res.items);
+}
+
+pub fn has(
+    needle:[]u8,
+    arr:std.ArrayList([]u8),
+) bool {
+    return loop: for (arr.items) |itm| {
+        if (std.mem.eql(u8, itm, needle))
+            break :loop true;
+    } else false;
+}
+
+pub fn append_entry(
+    entry:table.Filetype,
+    alloc:std.mem.Allocator,
+    arr:*std.ArrayList(u8),
+) !void {
+    try arr.appendSlice(alloc, ".{\n    .header = \"");
+    for (entry.header) |b| {
+        //add '\x'
+        try arr.print(alloc, "\\x", .{});
+        //if the byte is less than '\x0F', add a zero 
+        if (b <= '\x0F')
+            try arr.print(alloc, "0", .{});
+        //add hex digit for byte
+        try arr.print(alloc, "{X}", .{b});
+    }
+    try arr.appendSlice(alloc, "\",\n");
+    try arr.print(
+        alloc,
+        \\    .desc = "{s}",
+        \\    .type = "{s}",
+        \\    .trailer = 
+    , .{ 
+        entry.desc,
+        entry.type,
+    });
+    if (entry.trailer) |trailer| {
+        try arr.append(alloc, '"');
+        for (trailer) |b| {
+            //add '\x'
+            try arr.print(alloc, "\\x", .{});
+            //if the byte is less than '\x0F', add a zero 
+            if (b <= '\x0F')
+                try arr.print(alloc, "0", .{});
+            //add hex digit for byte
+            try arr.print(alloc, "{X}", .{b});
+        }
+        try arr.append(alloc, '"');
+    } else
+        try arr.appendSlice(alloc, "null");
+
+    try arr.appendSlice(alloc, ",\n");
+
+    try arr.print(
+        alloc,
+        \\    .ext = {s},
+        \\    .offset = {d},
+        \\}},
+        \\
+    , .{
+        if (entry.ext) |e| try std.fmt.allocPrint(alloc, "\"{s}\"", .{e}) else "null",
+        entry.offset,
+    });
 }

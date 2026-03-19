@@ -27,13 +27,14 @@ pub fn main() !void {
 
     if (config.mk_entry) return mk_entry(alloc);
 
-    
     if (config.dataset_file) |filename| {
         defer print.debug("using dataset file: {s}", .{filename});
         //get the full path to the dataset file
         print.debug("getting the full path to dataset file: {s}", .{filename});
         const path = std.fs.cwd().realpathAlloc(alloc, filename) catch |e| {
-            hlp.err_out("failed to get full path to dataset file ({s}): {t}\n", .{filename, e});
+            hlp.err_out(
+                "failed to get full path to dataset file ({s}): {t}\n", .{filename, e}
+            );
             unreachable;
         };
         defer alloc.free(path);
@@ -48,7 +49,9 @@ pub fn main() !void {
                 error.ParseZon => hlp.err_out(
                     "dataset format appears to be invalid ({s})", .{filename}
                 ),
-                else => hlp.err_out("failed to parse dataset file ({s}): {t}\n", .{filename, e}),
+                else => hlp.err_out(
+                    "failed to parse dataset file ({s}): {t}\n", .{filename, e}
+                ),
             }
             unreachable;
         };
@@ -85,6 +88,12 @@ pub fn main() !void {
         };
     }
     defer std.zon.parse.free(alloc, config.dataset.?);
+    if (config.print_dataset) {
+        const formatted = try hlp.format_ENTIRE_dataset(alloc, config.dataset.?);
+        defer alloc.free(formatted);
+        try stdout.print("{s}", .{formatted});
+        std.process.exit(0);
+    }
 
     //create an arena allocator from the gpa so it can easily be reset
     //  after each file
@@ -162,7 +171,7 @@ pub fn main() !void {
             match.ext orelse "[none]",
             match.desc,
         });
-    } else print.debug("end of files to check", .{}) else {
+    } else print.debug("end of files to check", .{}) else if (!config.print_dataset) {
         //no filename provided (no args), print to stderr and exit
         hlp.err_out("no filename provided\n", .{});
     }
@@ -171,6 +180,7 @@ pub fn main() !void {
 //interactively generate entries (loop)
 // TODO: make this append it to the dataset config file (if found)
 fn mk_entry(allocator:std.mem.Allocator) !void {
+    defer stdout.print("goodbye...\n", .{}) catch {};
     //print instructions
     try stdout.print(
         \\creating entries... I will need:
